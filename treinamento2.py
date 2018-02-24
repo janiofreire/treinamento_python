@@ -27,7 +27,6 @@ def load_word_to_vec(path, quantColumns):
     file = open(path, mode="r")
 
     global GLOBAL_MAP
-    global GLOBAL_VEC_COLUMNS_SIZE
 
     file.readline()
 
@@ -37,8 +36,8 @@ def load_word_to_vec(path, quantColumns):
         word = split_data[0]
         quant_columns_vec = len(split_data) -1
 
-        if quant_columns_vec > GLOBAL_VEC_COLUMNS_SIZE:
-            local_dif = quant_columns_vec-GLOBAL_VEC_COLUMNS_SIZE
+        if quant_columns_vec > quantColumns:
+            local_dif = quant_columns_vec-quantColumns
             index += local_dif
             for w in split_data[1:index]:
                 word += " " + w
@@ -104,24 +103,8 @@ def vectorize_sentence(dados_param, sentenceToVec, mergeVector):
     return merge_result, results
 
 
-def execute_experiment(pathTreino, pathValidation, pathWordEmbemding,numColumnVector):
-    training_data = open_file_sentence_pair_similarity(pathTreino)
-    validate_data = open_file_sentence_pair_similarity(pathValidation)
-    global GLOBAL_FILE_W2V_PATH
-    global GLOBAL_VEC_COLUMNS_SIZE
-    GLOBAL_FILE_W2V_PATH = pathWordEmbemding
-    GLOBAL_VEC_COLUMNS_SIZE = numColumnVector
-    vec_sentence_training, result_t = vectorize_sentence(training_data, sentence_to_vec_default, merge_vector)
-    vec_sentence_validate, result_v = vectorize_sentence(validate_data, sentence_to_vec_default, merge_vector)
-
-    traini_data(vec_sentence_training, result_t, vec_sentence_validate, result_v)
-
-    return
-
-
-def traini_data(vec_sentence_training, result_t, vec_sentence_validate, result_v):
-    global GLOBAL_VEC_COLUMNS_SIZE
-    sequence_input = Input(shape=(GLOBAL_VEC_COLUMNS_SIZE,), dtype='float32')
+def traini_data(vec_sentence_training, result_t, vec_sentence_validate, result_v, numColumnVector):
+    sequence_input = Input(shape=(numColumnVector,), dtype='float32')
    # x = Conv1D(128, 5, activation='relu')
     #x = MaxPooling1D(5)(x)
     #x = Conv1D(128, 5, activation='relu')(x)
@@ -137,7 +120,7 @@ def traini_data(vec_sentence_training, result_t, vec_sentence_validate, result_v
     #model = Model(sequence_input, preds)
 
     model = Sequential()
-    model.add(Dense(1, input_dim=GLOBAL_VEC_COLUMNS_SIZE, kernel_initializer='normal', activation='relu'))
+    model.add(Dense(1, input_dim=numColumnVector, kernel_initializer='normal', activation='relu'))
     model.add(Dense(2, activation='softmax'))
 
     model.compile(loss='mean_squared_error',
@@ -145,17 +128,34 @@ def traini_data(vec_sentence_training, result_t, vec_sentence_validate, result_v
                   ,metrics=[pearson]
                   )
 
-    x_train = pad_sequences(vec_sentence_training, maxlen=GLOBAL_VEC_COLUMNS_SIZE)
+    x_train = pad_sequences(vec_sentence_training, maxlen=numColumnVector)
     y_train = to_categorical(np.asarray(result_t))
-    x_val = pad_sequences(vec_sentence_validate, maxlen=GLOBAL_VEC_COLUMNS_SIZE)
+    x_val = pad_sequences(vec_sentence_validate, maxlen=numColumnVector)
     y_val = to_categorical(np.asarray(result_v))
 
     # happy learning!
     model.fit(x_train, y_train
               #, validation_data=(x_val, y_val)
               , epochs=3, batch_size=128)
-    scores = model.evaluate(x_val, y_val, verbose=0)
-    print("Person: %.2f% " %scores[1])
+    scores = model.evaluate(x_val, y_val, verbose=1)
+    print("Person: " + str(scores[1]))
+    return
+
+
+def execute_experiment(pathTreino, pathValidation, pathWordEmbemding, numColumnVector):
+    training_data = open_file_sentence_pair_similarity(pathTreino)
+    validate_data = open_file_sentence_pair_similarity(pathValidation)
+    global GLOBAL_FILE_W2V_PATH
+    global GLOBAL_VEC_COLUMNS_SIZE
+
+    GLOBAL_FILE_W2V_PATH = pathWordEmbemding
+    GLOBAL_VEC_COLUMNS_SIZE = numColumnVector
+
+    vec_sentence_training, result_t = vectorize_sentence(training_data, sentence_to_vec_default, merge_vector)
+    vec_sentence_validate, result_v = vectorize_sentence(validate_data, sentence_to_vec_default, merge_vector)
+
+    traini_data(vec_sentence_training, result_t, vec_sentence_validate, result_v, numColumnVector)
+
     return
 
 
