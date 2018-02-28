@@ -4,6 +4,7 @@ from keras.layers import *
 from keras.preprocessing.sequence import pad_sequences
 from keras.utils import to_categorical
 from scipy.stats import pearsonr
+from tensorflow.contrib.metrics import streaming_pearson_correlation
 import numpy as np
 
 GLOBAL_MAP = {}
@@ -12,13 +13,28 @@ GLOBAL_VEC_COLUMNS_SIZE=0
 
 
 def pearson(y_true, y_pred):
+    result = streaming_pearson_correlation(y_true, y_pred)
+    return result[0]
+
+
+def pearson3(y_true, y_pred):
     fsp = y_pred - K.mean(y_pred)
     fst = y_true - K.mean(y_true)
 
     devP = K.std(y_pred)
     devT = K.std(y_true)
 
-    return K.mean(fsp * fst) / (devP * devT)
+    return (fsp * fst) / (devP * devT)
+
+
+def pearson2(y_true, y_pred):
+  fsp = y_pred - K.mean(y_pred)
+  fst = y_true - K.mean(y_true)
+
+  devP = K.std(y_pred)
+  devT = K.std(y_true)
+
+  return K.mean(fsp * fst) / (devP * devT)
 
 
 def clean_number(x):
@@ -108,7 +124,7 @@ def vectorize_sentence(dados_param, sentence_to_vec, merge_vector):
 def create_default_model(num_column_vector):
     model = Sequential()
     model.add(Dense(1, input_dim=num_column_vector, kernel_initializer='normal', activation='relu'))
-    model.add(Dense(2, activation='softmax'))
+    model.add(Dense(1, activation='softmax'))
 
     return model
 
@@ -147,9 +163,11 @@ def traini_data(vec_sentence_training, result_t, vec_sentence_test, result_v, nu
                   , metrics=[pearson])
 
     x_train = pad_sequences(vec_sentence_training, maxlen=num_column_vector, dtype='float32')
-    y_train = to_categorical(np.asarray(result_t), num_classes=None)
+   # y_train = to_categorical(np.asarray(result_t), num_classes=None)
+    y_train = np.asarray(result_t)
     x_val = pad_sequences(vec_sentence_test, maxlen=num_column_vector, dtype='float32')
-    y_val = to_categorical(np.asarray(result_v), num_classes=None)
+ #   y_val = to_categorical(np.asarray(result_v), num_classes=None)
+    y_val = np.asarray(result_v)
 
     # happy learning!
     model.fit(x_train, y_train
