@@ -6,6 +6,7 @@ from keras.utils import to_categorical
 from scipy.stats import pearsonr
 from tensorflow.contrib.metrics import streaming_pearson_correlation
 import numpy as np
+import tensorflow as tf
 
 GLOBAL_MAP = {}
 GLOBAL_FILE_W2V_PATH = ""
@@ -128,10 +129,12 @@ def create_default_model(num_column_vector):
 
     return model
 
-def crete_maia_layer():
+def crete_maia_layer(num_column_vector):
     model = Sequential()
-    model.add(LSTM(return_sequences=False))
-    model.add(Dense(output_dim=100, activation='relu', init='glorot_uniform', name='module3'))
+    model.add(LSTM(num_column_vector, return_sequences=True, input_shape=(3000)))
+    model.add(Dense(1, input_dim=num_column_vector, kernel_initializer='normal', activation='relu'))
+    model.add(Dense(1, activation='softmax'))
+
     return model
 
 
@@ -154,13 +157,17 @@ def traini_data(vec_sentence_training, result_t, vec_sentence_test, result_v, nu
     model = None
 
     if mode_creator is not None:
-        model = mode_creator()
+        model = mode_creator(num_column_vector)
     else:
         model = create_default_model(num_column_vector)
 
     model.compile(loss='mean_squared_error',
                   optimizer='adam'
-                  , metrics=[pearson])
+                  , metrics=[
+            'mse'
+#            pearson
+
+            ])
 
     x_train = pad_sequences(vec_sentence_training, maxlen=num_column_vector, dtype='float32')
    # y_train = to_categorical(np.asarray(result_t), num_classes=None)
@@ -172,7 +179,7 @@ def traini_data(vec_sentence_training, result_t, vec_sentence_test, result_v, nu
     # happy learning!
     model.fit(x_train, y_train
               #, validation_data=(x_val, y_val)
-          , epochs=100, batch_size=128)
+          , epochs=100, batch_size=128, validation_split=0.1)
     if function_evaluation is None:
         scores = model.evaluate(x_val, y_val, verbose=1)
     else:
@@ -183,13 +190,17 @@ def traini_data(vec_sentence_training, result_t, vec_sentence_test, result_v, nu
 
 
 def pearson_evaluation(model, x_val, y_val):
-    values = []
+    values2 = []
     x_list = x_val.tolist()
     y_list = y_val.tolist()
 
-    [values.append(model.predict(x)) for x in x_list]
+    #for x in x_val:
+     #   values.append(model.predict(x))
 
-    return pearsonr(values, y_list)
+    values = model.predict(x_val)
+    values = values.tolist()
+    [values2.append(x[0]) for x in values]
+    return pearsonr(values2, y_val.tolist())
 
 
 def execute_experiment(path_treino, path_validation, path_word_embemding, num_column_vector, model_creation, function_evaluation):
@@ -210,10 +221,11 @@ def execute_experiment(path_treino, path_validation, path_word_embemding, num_co
 
 
 def main():
+    tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
     execute_experiment("/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/Propor/treino_2016/treino.csv",
      "/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/Propor/trial/trial-500.csv",
     #"/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/Propor/gold_2016/assin-test-gold/propor_gold_ptbr.csv",
-     "/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/Dados_Treinamento/glove_s300.txt", 300, None, None)
+     "/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/Dados_Treinamento/glove_s300.txt", 300, crete_maia_layer, pearson_evaluation)
 
 
 if __name__ == '__main__':
