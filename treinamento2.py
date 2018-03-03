@@ -129,11 +129,14 @@ def create_default_model(num_column_vector):
 
     return model
 
-def crete_maia_layer(num_column_vector):
+
+def crete_maia_layer(num_column_vector, train_data):
     model = Sequential()
-    model.add(LSTM(num_column_vector, return_sequences=True, input_shape=(3000)))
-    model.add(Dense(1, input_dim=num_column_vector, kernel_initializer='normal', activation='relu'))
-    model.add(Dense(1, activation='softmax'))
+  #  model.add(Dense(1, input_dim=num_column_vector, kernel_initializer='normal', activation='relu'))
+    model.add(LSTM(output_dim=num_column_vector,
+                   return_sequences=False,
+                   input_shape=(num_column_vector,)))
+   # model.add(Dense(1, activation='softmax'))
 
     return model
 
@@ -155,9 +158,15 @@ def traini_data(vec_sentence_training, result_t, vec_sentence_test, result_v, nu
     #model = Model(sequence_input, preds)
 
     model = None
+    x_train = pad_sequences(vec_sentence_training, maxlen=num_column_vector, dtype='float32')
+    # y_train = to_categorical(np.asarray(result_t), num_classes=None)
+    y_train = np.asarray(result_t)
+    x_val = pad_sequences(vec_sentence_test, maxlen=num_column_vector, dtype='float32')
+ #   y_val = to_categorical(np.asarray(result_v), num_classes=None)
+    y_val = np.asarray(result_v)
 
     if mode_creator is not None:
-        model = mode_creator(num_column_vector)
+        model = mode_creator(num_column_vector, x_train)
     else:
         model = create_default_model(num_column_vector)
 
@@ -165,16 +174,11 @@ def traini_data(vec_sentence_training, result_t, vec_sentence_test, result_v, nu
                   optimizer='adam'
                   , metrics=[
             'mse'
-#            pearson
+            #            pearson
+        ])
 
-            ])
-
-    x_train = pad_sequences(vec_sentence_training, maxlen=num_column_vector, dtype='float32')
-   # y_train = to_categorical(np.asarray(result_t), num_classes=None)
-    y_train = np.asarray(result_t)
-    x_val = pad_sequences(vec_sentence_test, maxlen=num_column_vector, dtype='float32')
- #   y_val = to_categorical(np.asarray(result_v), num_classes=None)
-    y_val = np.asarray(result_v)
+    x_train = np.reshape(x_train, (x_train.shape[0], 1, x_train.shape[1]))
+    #y_train = np.reshape(y_train, (y_train.shape[0], 1, y_train.shape[0]))
 
     # happy learning!
     model.fit(x_train, y_train
