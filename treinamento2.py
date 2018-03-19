@@ -209,7 +209,7 @@ def traini_data(x_train, y_train, x_val, y_val, num_column_vector, mode_creator,
 
     model.fit(x_train, y_train
               # , validation_data=(x_val, y_val)
-              , epochs=30, batch_size=128)
+              , epochs=100, batch_size=128)
 
     if function_evaluation is None:
         scores = model.evaluate(x_val, y_val, verbose=1)
