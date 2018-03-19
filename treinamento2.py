@@ -2,15 +2,16 @@ from keras.preprocessing.text import *
 from keras.models import *
 from keras.layers import *
 from keras.preprocessing.sequence import pad_sequences
-from keras.utils import to_categorical
 from scipy.stats import pearsonr
 from tensorflow.contrib.metrics import streaming_pearson_correlation
 import numpy as np
 import tensorflow as tf
+import json
+import pickle
 
 GLOBAL_MAP = {}
 GLOBAL_FILE_W2V_PATH = ""
-GLOBAL_VEC_COLUMNS_SIZE=0
+GLOBAL_VEC_COLUMNS_SIZE = 0
 
 
 def pearson(y_true, y_pred):
@@ -22,24 +23,24 @@ def pearson3(y_true, y_pred):
     fsp = y_pred - K.mean(y_pred)
     fst = y_true - K.mean(y_true)
 
-    devP = K.std(y_pred)
-    devT = K.std(y_true)
+    dev_p = K.std(y_pred)
+    dev_t = K.std(y_true)
 
-    return (fsp * fst) / (devP * devT)
+    return (fsp * fst) / (dev_p * dev_t)
 
 
 def pearson2(y_true, y_pred):
-  fsp = y_pred - K.mean(y_pred)
-  fst = y_true - K.mean(y_true)
+    fsp = y_pred - K.mean(y_pred)
+    fst = y_true - K.mean(y_true)
 
-  devP = K.std(y_pred)
-  devT = K.std(y_true)
+    dev_p = K.std(y_pred)
+    dev_t = K.std(y_true)
 
-  return K.mean(fsp * fst) / (devP * devT)
+    return K.mean(fsp * fst) / (dev_p * dev_t)
 
 
 def clean_number(x):
-    return x[3].replace("\n","")
+    return x[3].replace("\n", "")
 
 
 def load_word_to_vec(path, quant_columns):
@@ -68,25 +69,38 @@ def load_word_to_vec(path, quant_columns):
     return
 
 
-def open_file_sentence_pair_similarity(filePath):
-    file = open(filePath, mode="r")
+def is_pair_file(sentences_results):
+    line = next(iter(sentences_results or []), None)
+    return len(line) == 6
+
+
+def open_file_sentence_pair_similarity(file_path):
+    file = open(file_path, mode="r")
     lines = file.readlines()
     sentences_result = [i.split("\t")[1:] for i in lines]
+    index = 4 if is_pair_file(sentences_result) else 2
 
     for i in sentences_result:
-        i[2] = float(i[2].replace("\n",""))
-        i[2] = i[2] / 5
+        i[index] = float(i[index].replace("\n", ""))
+        i[index] = i[index] / 5
 
     file.close()
 
     return sentences_result
 
 
-def sentence_to_vec_default(sentence):
+def load_global_data():
     if len(GLOBAL_MAP) < 1:
         global GLOBAL_FILE_W2V_PATH
         global GLOBAL_VEC_COLUMNS_SIZE
         load_word_to_vec(GLOBAL_FILE_W2V_PATH, GLOBAL_VEC_COLUMNS_SIZE)
+    return
+
+
+def sentence_to_vec_default(line, index):
+    sentence = line[index]
+
+    load_global_data()
 
     list_words = text_to_word_sequence(sentence, lower=True)
     vec_result = []
@@ -102,23 +116,57 @@ def sentence_to_vec_default(sentence):
     return [v/len(list_words) for v in vec_result]
 
 
+def create_pair_vector(pairs, sentence_to_vec_function, merge_vector_function):
+    vector_result = []
+
+    load_global_data()
+
+    for pair in pairs:
+        vec1 = GLOBAL_MAP.get(pair['c1'].lower())
+        vec2 = GLOBAL_MAP.get(pair['c2'].lower())
+        if vec1 is None:
+            vec1 = np.zeros(GLOBAL_VEC_COLUMNS_SIZE)
+        if vec2 is None:
+            vec2 = np.zeros(GLOBAL_VEC_COLUMNS_SIZE)
+        vector_result.append(merge_vector_function(vec1, vec2))
+
+    return vector_result
+
+
+def vectorize_sentence_pair(dados_param, sentence_to_vec_function, merge_vector_function):
+    merge_result = []
+    results = []
+
+    for dado in dados_param:
+        pairs = json.loads(dado[5])
+        merge_result.append(create_pair_vector(pairs, sentence_to_vec_function, merge_vector_function))
+        results.append(dado[4])
+
+    return merge_result, results
+
+
 def merge_vector(s1, s2):
     vec_dif = [s1[i]-s2[i] for i in range(len(s1))]
     vec_multi = np.multiply(s1, s2)
     return [vec_dif[i]-vec_multi[i] for i in range(len(vec_dif))]
 
 
-def vectorize_sentence(dados_param, sentence_to_vec, merge_vector):
-    merge_result=[]
-    results=[]
+def merge_vector_combine(s1, s2):
+    return np.append(s1, s2)
+
+
+def vectorize_sentence(dados_param, sentence_to_vec_function, merge_vector_function):
+    merge_result = []
+    results = []
 
     for dado in dados_param:
-        s1 = sentence_to_vec(dado[0])
-        s2 = sentence_to_vec(dado[1])
-        merge = merge_vector(s1, s2)
+        s1 = sentence_to_vec_function(dado, 0)
+        s2 = sentence_to_vec_function(dado, 1)
+        merge = merge_vector_function(s1, s2)
         merge_result.append(merge)
         if len(dado) > 2:
             results.append(dado[2])
+
     return merge_result, results
 
 
@@ -132,38 +180,20 @@ def create_default_model(num_column_vector):
 
 def crete_maia_layer(num_column_vector, train_data):
     model = Sequential()
-  #  model.add(Dense(1, input_dim=num_column_vector, kernel_initializer='normal', activation='relu'))
     model.add(LSTM(output_dim=num_column_vector,
                    return_sequences=False,
-                   input_shape=(num_column_vector,)))
-   # model.add(Dense(1, activation='softmax'))
+                   input_shape=(train_data.shape[1], train_data.shape[2])))
+    model.add(Dense(128, activation='relu'))
+    #model.add(Dropout(0.25))
+    model.add(Dense(1, init='normal'))
 
     return model
 
 
-def traini_data(vec_sentence_training, result_t, vec_sentence_test, result_v, num_column_vector, mode_creator, function_evaluation):
-    sequence_input = Input(shape=(num_column_vector,), dtype='float32')
-   # x = Conv1D(128, 5, activation='relu')
-    #x = MaxPooling1D(5)(x)
-    #x = Conv1D(128, 5, activation='relu')(x)
-    #x = MaxPooling1D(5)(x)
-    #x = Conv1D(128, 5, activation='relu')(x)
-    #x = MaxPooling1D(35)(x)  # global max pooling
-    #x = Flatten()(x)
-    #x = Dense(128, activation='relu')(x)
-    #preds = Dense(1, activation='softmax')(x)
-
-    #preds = Dense(1, activation='softmax')
-
-    #model = Model(sequence_input, preds)
-
-    model = None
-    x_train = pad_sequences(vec_sentence_training, maxlen=num_column_vector, dtype='float32')
-    # y_train = to_categorical(np.asarray(result_t), num_classes=None)
-    y_train = np.asarray(result_t)
-    x_val = pad_sequences(vec_sentence_test, maxlen=num_column_vector, dtype='float32')
- #   y_val = to_categorical(np.asarray(result_v), num_classes=None)
-    y_val = np.asarray(result_v)
+def traini_data(x_train, y_train, x_val, y_val, num_column_vector, mode_creator, function_evaluation, is_pair):
+    if is_pair is False:
+        x_train = np.reshape(x_train, (x_train.shape[0], 1, x_train.shape[1]))
+        x_val = np.reshape(x_val, (x_val.shape[0], 1, x_val.shape[1]))
 
     if mode_creator is not None:
         model = mode_creator(num_column_vector, x_train)
@@ -177,37 +207,30 @@ def traini_data(vec_sentence_training, result_t, vec_sentence_test, result_v, nu
             #            pearson
         ])
 
-    x_train = np.reshape(x_train, (x_train.shape[0], 1, x_train.shape[1]))
-    #y_train = np.reshape(y_train, (y_train.shape[0], 1, y_train.shape[0]))
-
-    # happy learning!
     model.fit(x_train, y_train
-              #, validation_data=(x_val, y_val)
-          , epochs=100, batch_size=128, validation_split=0.1)
+              # , validation_data=(x_val, y_val)
+              , epochs=30, batch_size=128)
+
     if function_evaluation is None:
         scores = model.evaluate(x_val, y_val, verbose=1)
     else:
-        scores = function_evaluation(model, x_val,y_val)
+        scores = function_evaluation(model, x_val, y_val)
+    print("Person: " + str(scores[0]))
 
-    print("Person: " + str(scores[1]))
-    return
+    return model
 
 
 def pearson_evaluation(model, x_val, y_val):
     values2 = []
-    x_list = x_val.tolist()
-    y_list = y_val.tolist()
-
-    #for x in x_val:
-     #   values.append(model.predict(x))
-
     values = model.predict(x_val)
     values = values.tolist()
     [values2.append(x[0]) for x in values]
+
     return pearsonr(values2, y_val.tolist())
 
 
-def execute_experiment(path_treino, path_validation, path_word_embemding, num_column_vector, model_creation, function_evaluation):
+def execute_experiment(path_treino, path_validation, path_word_embemding, num_column_vector, model_creation,
+                       function_evaluation, slice_teste, vectoriz_function, sentence_to_vec_function, merge_vector_function, is_pair):
     training_data = open_file_sentence_pair_similarity(path_treino)
     validate_data = open_file_sentence_pair_similarity(path_validation)
     global GLOBAL_FILE_W2V_PATH
@@ -216,21 +239,54 @@ def execute_experiment(path_treino, path_validation, path_word_embemding, num_co
     GLOBAL_FILE_W2V_PATH = path_word_embemding
     GLOBAL_VEC_COLUMNS_SIZE = num_column_vector
 
-    vec_sentence_training, result_t = vectorize_sentence(training_data, sentence_to_vec_default, merge_vector)
-    vec_sentence_validate, result_v = vectorize_sentence(validate_data, sentence_to_vec_default, merge_vector)
+    vec_sentence_training, result_t = vectoriz_function(training_data, sentence_to_vec_function, merge_vector_function)
+    vec_sentence_validate, result_v = vectoriz_function(validate_data, sentence_to_vec_function, merge_vector_function)
 
-    traini_data(vec_sentence_training, result_t, vec_sentence_validate, result_v, num_column_vector, model_creation, function_evaluation)
+    vec_sentence_training = pad_sequences(vec_sentence_training, maxlen=num_column_vector, dtype='float32')
+    result_t = np.asarray(result_t)
+    vec_sentence_validate = pad_sequences(vec_sentence_validate, maxlen=num_column_vector, dtype='float32')
+    result_v = np.asarray(result_v)
 
-    return
+    model = None
+
+    if slice_teste is not None and slice_teste is True:
+        x_slice = np.split(vec_sentence_validate, 2)
+        y_slice = np.split(result_v, 2)
+        for i in range(len(x_slice)):
+            vec_sentence_training = np.concatenate([vec_sentence_training, x_slice[i]])
+            result_t = np.concatenate([result_t, y_slice[i]])
+            index = 0 if i == 1 else 1
+            vec_sentence_validate = np.concatenate([vec_sentence_validate, x_slice[index]])
+            result_v = np.concatenate([result_v, y_slice[index]])
+            traini_data(vec_sentence_training, result_t, vec_sentence_validate, result_v, num_column_vector,
+                        model_creation, function_evaluation, is_pair)
+    else:
+        model = traini_data(vec_sentence_training, result_t, vec_sentence_validate, result_v, num_column_vector, model_creation,
+                    function_evaluation, is_pair)
+
+    return model
 
 
 def main():
     tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-    execute_experiment("/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/Propor/treino_2016/treino.csv",
-     "/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/Propor/trial/trial-500.csv",
-    #"/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/Propor/gold_2016/assin-test-gold/propor_gold_ptbr.csv",
-     "/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/Dados_Treinamento/glove_s300.txt", 300, crete_maia_layer, pearson_evaluation)
-
+    path_corpus = "/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/Resultados/"
+    model =  execute_experiment(path_corpus+"result_dice_ptbr_propor_train_2016.csv",
+    #path_corpus+"assin-ptbr-test.csv",
+    path_corpus+"result_dice_ptbr_propor_dev_2016.csv",
+     "/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/Dados_Treinamento/glove_s300.txt",
+                       300,
+                       crete_maia_layer,
+                       pearson_evaluation,
+                       False,
+#                       vectorize_sentence,
+                       vectorize_sentence_pair,
+                       sentence_to_vec_default,
+#                       merge_vector
+                       merge_vector_combine,
+                       True
+                       )
+    output = open('/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/modelos/modelo.pkl', 'wb')
+    pickle.dump(model, output)
 
 if __name__ == '__main__':
    main()
