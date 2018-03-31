@@ -81,8 +81,11 @@ def open_file_sentence_pair_similarity(file_path):
     index = 4 if is_pair_file(sentences_result) else 2
 
     for i in sentences_result:
-        i[index] = float(i[index].replace("\n", ""))
-        i[index] = i[index] / 5
+#        i[index] = float(i[index].replace("\n", ""))
+ #       i[index] = i[index] / 5
+         for a in range(index, len(i)):
+            i[a] = float(i[a].replace("\n", ""))
+            i[a] = i[a] / 5
 
     file.close()
 
@@ -116,6 +119,11 @@ def sentence_to_vec_default(line, index):
     return [v/len(list_words) for v in vec_result]
 
 
+def sentence_to_vec_merged(line, index):
+    sentence = line[index]
+    return sentence[3:len(sentence)]
+
+
 def create_pair_vector(pairs, sentence_to_vec_function, merge_vector_function):
     vector_result = []
 
@@ -141,6 +149,17 @@ def vectorize_sentence_pair(dados_param, sentence_to_vec_function, merge_vector_
         pairs = json.loads(dado[5])
         merge_result.append(create_pair_vector(pairs, sentence_to_vec_function, merge_vector_function))
         results.append(dado[4])
+
+    return merge_result, results
+
+
+def vectorize_sentence_from_mergi_results(dados_param, sentence_to_vec_function, merge_vector_function):
+    merge_result = []
+    results = []
+
+    for dado in dados_param:
+        merge_result.append(dado[3:len(dado)])
+        results.append(dado[2])
 
     return merge_result, results
 
@@ -183,11 +202,76 @@ def crete_maia_layer(num_column_vector, train_data):
     model.add(LSTM(output_dim=num_column_vector,
                    return_sequences=False,
                    input_shape=(train_data.shape[1], train_data.shape[2])))
-    model.add(Dense(128, activation='relu'))
+    model.add(Dense(128, activation='sigmoid'))
     #model.add(Dropout(0.25))
     model.add(Dense(1, init='normal'))
 
     return model
+
+
+def crete_maia_layer2(num_column_vector, train_data, dice_layer):
+    model1 = Sequential()
+    model1.add(LSTM(output_dim=num_column_vector,
+                    return_sequences=True,
+                    input_shape=(train_data.shape[1], train_data.shape[2])))
+    model1.add(LSTM(output_dim=num_column_vector,
+                    return_sequences=False,
+                    input_shape=(train_data.shape[1], train_data.shape[2])))
+    model1.add(Dense(output_dim=num_column_vector, input_dim=train_data.shape[2], activation='relu'))
+    # model1.add(LSTM(output_dim=num_column_vector,
+    #               return_sequences=False,
+    #               input_shape=(train_data.shape[1], train_data.shape[2])))
+    # model1.add(TimeDistributed(LSTM(100, batch_input_shape=(None, train_data.shape[1], train_data.shape[2],train_data.shape[3]), return_sequences=False), batch_input_shape=(None, train_data.shape[1], train_data.shape[2], train_data.shape[3])))
+
+    # model.add(LSTM(100, batch_input_shape=(None, clauses.shape[1],clauses.shape[2],clauses.shape[3])))
+
+    # model1.add(LSTM(100, batch_input_shape=(None, train_data.shape[1],train_data.shape[2])))
+
+    model2 = Sequential()
+    model2.add(Dense(num_column_vector, input_dim=dice_layer.shape[1], init='normal', activation='relu'))
+    # model2.add(Dense(num_column_vector, activation='relu'))
+
+    final_model = Merge([model1, model2], mode='concat')
+    model = Sequential()
+    model.add(final_model)
+    model.add(Dense(128, activation='sigmoid'))
+    model.add(Dropout(0.25))
+    model.add(Dense(1, init='normal', activation='sigmoid'))
+    print(model.summary())
+
+    return model
+
+
+def crete_maia_layer3(num_column_vector, train_data):
+    model1 = Sequential()
+    model1.add(LSTM(output_dim=num_column_vector,
+                    return_sequences=True,
+                    input_shape=(train_data.shape[1], train_data.shape[2])))
+    model1.add(LSTM(output_dim=num_column_vector,
+                    return_sequences=False,
+                    input_shape=(train_data.shape[1], train_data.shape[2])))
+    model1.add(Dense(output_dim=num_column_vector, input_dim=train_data.shape[2], activation='relu'))
+    # model1.add(LSTM(output_dim=num_column_vector,
+    #               return_sequences=False,
+    #               input_shape=(train_data.shape[1], train_data.shape[2])))
+    # model1.add(TimeDistributed(LSTM(100, batch_input_shape=(None, train_data.shape[1], train_data.shape[2],train_data.shape[3]), return_sequences=False), batch_input_shape=(None, train_data.shape[1], train_data.shape[2], train_data.shape[3])))
+
+    # model.add(LSTM(100, batch_input_shape=(None, clauses.shape[1],clauses.shape[2],clauses.shape[3])))
+
+    # model1.add(LSTM(100, batch_input_shape=(None, train_data.shape[1],train_data.shape[2])))
+
+    #model2 = Sequential()
+   # model2.add(Dense(num_column_vector, input_dim=dice_layer.shape[1], init='normal', activation='relu'))
+    # model2.add(Dense(num_column_vector, activation='relu'))
+
+
+
+    model1.add(Dense(128, activation='sigmoid'))
+    model1.add(Dropout(0.25))
+    model1.add(Dense(1, init='normal', activation='sigmoid'))
+    print(model1.summary())
+
+    return model1
 
 
 def traini_data(x_train, y_train, x_val, y_val, num_column_vector, mode_creator, function_evaluation, is_pair):
@@ -242,9 +326,9 @@ def execute_experiment(path_treino, path_validation, path_word_embemding, num_co
     vec_sentence_training, result_t = vectoriz_function(training_data, sentence_to_vec_function, merge_vector_function)
     vec_sentence_validate, result_v = vectoriz_function(validate_data, sentence_to_vec_function, merge_vector_function)
 
-    vec_sentence_training = pad_sequences(vec_sentence_training, maxlen=num_column_vector, dtype='float32')
+    vec_sentence_training = pad_sequences(vec_sentence_training, dtype='float32')
     result_t = np.asarray(result_t)
-    vec_sentence_validate = pad_sequences(vec_sentence_validate, maxlen=num_column_vector, dtype='float32')
+    vec_sentence_validate = pad_sequences(vec_sentence_validate, dtype='float32')
     result_v = np.asarray(result_v)
 
     model = None
@@ -269,24 +353,27 @@ def execute_experiment(path_treino, path_validation, path_word_embemding, num_co
 
 def main():
     tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-    path_corpus = "/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/Resultados/"
-    model =  execute_experiment(path_corpus+"result_dice_ptbr_propor_train_2016.csv",
+    path_corpus = "/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/Resultados/resultado_merge/"
+    model =  execute_experiment(path_corpus+"result_merge_train_propor_ptbr_2016_gold.csv",
     #path_corpus+"assin-ptbr-test.csv",
-    path_corpus+"result_dice_ptbr_propor_dev_2016.csv",
+    path_corpus+"result_merge_test_propor_ptbr_2016_gold.csv",
      "/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/Dados_Treinamento/glove_s300.txt",
-                       300,
-                       crete_maia_layer,
+                       5,
+                       crete_maia_layer3,
                        pearson_evaluation,
                        False,
 #                       vectorize_sentence,
-                       vectorize_sentence_pair,
-                       sentence_to_vec_default,
+#                       vectorize_sentence_pair,
+                        vectorize_sentence_from_mergi_results,
+                        sentence_to_vec_merged,
+                       #sentence_to_vec_default,
 #                       merge_vector
                        merge_vector_combine,
-                       True
+                      False
                        )
     output = open('/media/janio/cdd58d38-6ee5-49db-aeca-f74319d6e461/dados/modelos/modelo.pkl', 'wb')
     pickle.dump(model, output)
+
 
 if __name__ == '__main__':
    main()
